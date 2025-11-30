@@ -1712,6 +1712,247 @@ JSON.stringify({ a: 2 }, null, "");
 
 通过上面的代码可以看到，添加第二个参数可以对字符串进行过滤处理；当第三个参数传入的是多个空格的时候，可以增加结果字符串里面的间距数量。
 
-\*分析各种数据类型及边界情况\*\*
+**分析各种数据类型及边界情况**
 
-![](https://2980.com/mailv2/mailfile/mails/editorimage?UserName=01816C607895D026812881F45C4BA32E1977E81D9EEA284BE5ECBCC2BE461C42&Guid=AFA7DFF7C48630ACBC358E425E94B991502D71F9B88722F0FE6F2282369DF8C4&FileName=A3037326C7A429DBE0CD18EDE3DE6E15AD16EFDFC3B633B11B183976C02C0F97)
+下面这个图表列出了各种数据类型的转换结果，可以帮助我们分析各种数据类型及边界情况。但是还有一个特殊情况：对于循环引用的对象使用这一方法，会抛出错误。
+
+![6592c14cfd2ddf7f09b7276bc79311c7](https://img2024.cnblogs.com/blog/2332774/202511/2332774-20251129150211270-107420899.png)
+![b6efaf2adc521b86330936d7be4ee200](https://img2024.cnblogs.com/blog/2332774/202511/2332774-20251129150256225-1880374277.png)
+
+**实现 JSON.stringify**
+
+```js
+function jsonStringify(data) {
+  let type = typeof data;
+  if (type !== "object") {
+    let result = data;
+    //data 可能是基础数据类型的情况在这里处理
+    if (Number.isNaN(data) || data === Infinity) {
+      //NaN 和 Infinity 序列化返回 "null"
+      result = "null";
+      return result;
+    } else if (
+      type === "function" ||
+      type === "undefined" ||
+      type === "symbol"
+    ) {
+      // 由于 function 序列化返回undefined,因此和undefined、symbol 一起处理
+      return undefined;
+    } else if (type === "string") {
+      result = '"' + data + '"';
+    }
+    return String(result);
+  } else if (type === "object") {
+    if (data === null) {
+      return "null"; // 第01讲有讲过 typeof null 为'object'的特殊情况
+    } else if (data.toJSON && typeof data.toJSON === "function") {
+      return jsonStringify(data.toJSON());
+    } else if (data instanceof Array) {
+      let result = [];
+      //如果是数组,那么数组里面的每一项类型又有可能是多样的
+      data.forEach((item, index) => {
+        if (
+          typeof item === "undefined" ||
+          typeof item === "function" ||
+          typeof item === "symbol"
+        ) {
+          result[index] = "null";
+        } else {
+          result[index] = jsonStringify(item);
+        }
+      });
+      result = "[" + result + "]";
+      return result.replace(/'/g, '"');
+    } else {
+      //处理普通对象
+      let result = [];
+      Object.keys(data).forEach((item, index) => {
+        if (typeof item !== "symbol") {
+          //key如果是symbol对象,忽略
+          if (
+            data[item] !== undefined &&
+            typeof data[item] !== "function" &&
+            typeof data[item] !== "symbol"
+          ) {
+            //键值如果是 undefined、function、symbol为属性值,忽略
+            result.push('"' + item + '"' + ":" + jsonStringify(data[item]));
+          }
+        }
+      });
+      return ("{" + result + "}").replace(/'/g, '"');
+    }
+  }
+}
+```
+
+先使用`type of`把基础数据类型与引用数据类型分开，再分情况进行处理，还有以下问题需要注意。
+
+1. 由于`function`返回的是 null，并且`typeof function`可以返回精准的判断，因此在整体逻辑处理基础类型的数据时会随着`undefined`和`symbol`一起处理。
+2. 由于`typeof null`返回的是`object`，因此在整体逻辑处理引用数据类型一起处理。
+3. 关于引用数据类型中的数组，数组元素的每一项有可能是很多种类型，所以又对类型为`undefined`、`function`和`symbol`的元素进行特殊处理。
+4. 同样是在处理普通对象的时候，`key`存在和数组同样的问题，因此同样对于上面这种情况做特殊处理。
+5. 最后在处理普通对象的时候，由于循环引用的问题暂未做检测，如果有循环引用的情况需要做错误处理。
+6. 对于`JSON.stringify`第二个以及第三个参数的实现，模拟代码中没有处理，需要自行实现。
+
+要想自己实现一个 JSON.stringify 方法，整体上来说并不容易，它依赖很多数据类型相关的知识点，而且还需要考虑各种边界情况。
+
+**测试用例**
+
+```js
+let nl = null;
+console.log(jsonStringify(nl) === JSON.stringify(nl));
+// true
+
+let und = undefined;
+console.log(jsonStringify(undefined) === JSON.stringify(undefined));
+// true
+
+let boo = false;
+console.log(jsonStringify(boo) === JSON.stringify(boo));
+// true
+
+let nan = NaN;
+console.log(jsonStringify(nan) === JSON.stringify(nan));
+// true
+
+let inf = Infinity;
+console.log(jsonStringify(Infinity) === JSON.stringify(Infinity));
+// true
+
+let str = "jack";
+console.log(jsonStringify(str) === JSON.stringify(str));
+// true
+
+let reg = new RegExp("w");
+console.log(jsonStringify(reg) === JSON.stringify(reg));
+// true
+
+let date = new Date();
+console.log(jsonStringify(date) === JSON.stringify(date));
+// true
+
+let sym = Symbol(1);
+console.log(jsonStringify(sym) === JSON.stringify(sym));
+// true
+
+let array = [1, 2, 3];
+console.log(jsonStringify(array) === JSON.stringify(array));
+// true
+
+let obj = {
+  name: "jack",
+  age: 18,
+  attr: ["coding", 123],
+  date: new Date(),
+  uni: Symbol(2),
+  sayHi: function () {
+    console.log("hi");
+  },
+  info: {
+    sister: "lily",
+    age: 16,
+    intro: {
+      money: undefined,
+      job: null,
+    },
+  },
+};
+console.log(jsonStringify(obj) === JSON.stringify(obj)); // true
+```
+
+**AI 给出的示例**
+
+```js
+// ...existing code...
+function jsonStringify(data) {
+  const stack = new Set();
+
+  function escapeString(str) {
+    return str.replace(/[\u0000-\u001F"\\\u2028\u2029]/g, function (ch) {
+      switch (ch) {
+        case '"':
+          return '\\"';
+        case "\\":
+          return "\\\\";
+        case "\b":
+          return "\\b";
+        case "\f":
+          return "\\f";
+        case "\n":
+          return "\\n";
+        case "\r":
+          return "\\r";
+        case "\t":
+          return "\\t";
+        case "\u2028":
+          return "\\u2028";
+        case "\u2029":
+          return "\\u2029";
+        default:
+          return "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0");
+      }
+    });
+  }
+
+  function inner(value) {
+    // primitives
+    if (value === null) return "null";
+    const t = typeof value;
+    if (t === "string") return '"' + escapeString(value) + '"';
+    if (t === "number") {
+      if (Number.isNaN(value) || value === Infinity || value === -Infinity)
+        return "null";
+      return String(value);
+    }
+    if (t === "boolean") return value ? "true" : "false";
+    if (t === "bigint")
+      throw new TypeError("Do not know how to serialize a BigInt");
+    if (t === "undefined" || t === "function" || t === "symbol")
+      return undefined; // top-level undefined handled by caller
+
+    // objects
+    // toJSON preference
+    if (value && typeof value.toJSON === "function") {
+      return inner(value.toJSON());
+    }
+
+    if (stack.has(value)) {
+      throw new TypeError("Converting circular structure to JSON");
+    }
+    stack.add(value);
+
+    try {
+      if (Array.isArray(value)) {
+        const res = [];
+        for (let i = 0; i < value.length; i++) {
+          let item = value[i];
+          const v = inner(item);
+          // array holes and undefined/function/symbol -> null
+          res.push(v === undefined ? "null" : v);
+        }
+        return "[" + res.join(",") + "]";
+      } else {
+        const keys = Object.keys(value);
+        const parts = [];
+        for (const k of keys) {
+          const val = value[k];
+          const vt = typeof val;
+          if (vt === "undefined" || vt === "function" || vt === "symbol")
+            continue;
+          const vs = inner(val);
+          if (vs !== undefined) {
+            parts.push('"' + escapeString(k) + '":' + vs);
+          }
+        }
+        return "{" + parts.join(",") + "}";
+      }
+    } finally {
+      stack.delete(value);
+    }
+  }
+
+  const out = inner(data);
+  // mimic native JSON.stringify: top-level undefined returns undefined
+  return out === undefined ? undefined : out;
+}
+```
